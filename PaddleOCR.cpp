@@ -87,6 +87,57 @@ cv::Mat PaddleOCR::detectTextInImage(cv::Mat image, const TextBoxExpandConfig& c
     return image;
 }
 
+void PaddleOCR::detectTextInImages() {
+    rect_to_direction_map_.clear();
+    if (text_to_rect_map_.empty()) return ;
+    int height = 48;
+    int width = 192;
+
+    Ort::AllocatorWithDefaultOptions allocator;
+    auto intput_name_ptr = cls_session_.GetInputNameAllocated(0,allocator);
+    auto output_name_ptr = cls_session_.GetOutputNameAllocated(0,allocator);
+    const char* input_names[] {intput_name_ptr.get()};
+    const char* output_names[] {output_name_ptr.get()};
+
+    for (auto& rect : text_crops_) {
+        auto cls_img = preprocessClsImage(image_,rect);
+        if (cls_img.empty()) continue;
+        auto input_tensor = matToCHW(cls_img);
+        std::vector<int64_t> input_shape {1,3,height,width};
+        Ort::MemoryInfo memory_info {Ort::MemoryInfo::CreateCpu(OrtArenaAllocator,OrtMemTypeDefault)};
+
+        Ort::Value input = Ort::Value::CreateTensor(
+        memory_info,
+        input_tensor.data(),
+input_tensor.size(),
+        input_shape.data(),
+        input_shape.size()
+        );
+
+        auto output = cls_session_.Run(
+            Ort::RunOptions{nullptr},
+            input_names,
+            &input,
+            1,
+            output_names,
+            1
+        );
+        auto output_data = output[0].GetTensorData<int64_t>();
+        auto output_shape = output[0].GetTensorTypeAndShapeInfo().GetShape();
+        int best_idx = 0;
+        float best_score = output_data[0];
+        int num = static_cast<int>(output_shape.back());
+
+        for (int i = 1; i < num; ++i) {
+            if (best_score<output_data[i]) {
+                best_score = output_data[i];
+                best_idx = i;
+            }
+        }
+        rect_to_direction.emplace_back(best_idx, best_score);
+    }
+}
+
 std::vector<float> PaddleOCR::matToCHW(cv::Mat& img) {
     std::vector<cv::Mat> channels;
     cv::split(img, channels);
@@ -137,6 +188,46 @@ cv::Mat PaddleOCR::Prcocess(cv::Mat& img, int64_t& height, int64_t& width) {
     return float_img;
 }
 
-cv::Mat PaddleOCR::preprocessClsImage(int64_t& height, int64_t& width) {
+cv::Mat PaddleOCR::preprocessClsImage(const cv::Mat& image, const cv::Rect& rect) {
+    const int target_h = 48;
+    const int target_w = 192;
 
+    cv::Rect image_rect(0,0,target_w,target_h);
+
+    auto vaild_rect = image_rect & rect;
+
+    if (vaild_rect.empty()) {
+        return cv::Mat();
+    }
+    cv::Mat img = image(vaild_rect);
+
+    if (img.empty()) {
+        return cv::Mat();
+    }
+
+    auto ratio = static_cast<float>(img.rows) / static_cast<float>(img.cols);
+    int resized_w = static_cast<int>(std::ceil(target_h*ratio));
+
+    resized_w = std::min(std::max(resized_w,1),target_w);
+
+    cv::Mat resized;
+    cv::resize(img,resized,cv::Size(resized_w,target_h));
+
+    cv::Mat padded = cv::Mat::zeros(target_h,target_h,CV_8UC3);
+    resized.copyTo(padded(cv::Rect(0,0,target_w,target_h)));
+
+    cv::Mat rgb;
+    cv::cvtColor(padded, rgb, cv::COLOR_BGR2RGB);
+    cv::Mat float_img;
+    rgb.convertTo(float_img, CV_32F, 1.0 / 255);
+
+    std::vector<float> mean {0.485, 0.456, 0.406};
+    std::vector<float> std {0.229, 0.224, 0.225};
+    std::vector<cv::Mat> channels;
+    cv::split(float_img, channels);
+    for (size_t i = 0; i < 3; ++i) {
+        channels[i] = (channels[i]-mean[i]) / std[i];
+    }
+    cv::merge(channels, float_img);
+    return float_img;
 }

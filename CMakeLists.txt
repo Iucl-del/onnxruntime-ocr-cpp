@@ -9,7 +9,7 @@ set(ONNXRUNTIME_DIR ${CMAKE_SOURCE_DIR}/onnxruntime)
 
 add_executable(OrtInference main.cpp
         PaddleOCR.cpp
-        PaddleOCR.h)
+        PaddleOCR.hpp)
 target_include_directories(OrtInference PRIVATE ${ONNXRUNTIME_DIR}/include)
 target_link_directories(OrtInference PRIVATE ${ONNXRUNTIME_DIR}/lib)
 target_link_libraries(OrtInference ${OpenCV_LIBS} onnxruntime)

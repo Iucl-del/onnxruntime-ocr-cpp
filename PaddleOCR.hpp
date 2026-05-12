@@ -3,6 +3,7 @@
 #include <opencv2/opencv.hpp>
 #include <onnxruntime_cxx_api.h>
 #include <vector>
+#include <functional>
 #include <map>
 
 struct TextBoxExpandConfig {
@@ -12,22 +13,16 @@ struct TextBoxExpandConfig {
     int min_pad_h = 4.0;               // 最小纵向扩展像素
 };
 
-struct TextDirectionResult {
-    cv::Rect rect;
-    int angle; //旋转角度
-    float score;//分类可信度
-};
-
 class PaddleOCR {
 public:
     PaddleOCR(std::string_view model_path);
     cv::Mat detectTextInImage(cv::Mat image, const TextBoxExpandConfig& config = TextBoxExpandConfig());//文本检测函数
-    std::vector<TextDirectionResult> detectTextInImages();
+    void detectTextInImages();
     void get_text_boxes(std::vector<cv::Rect>& text_crops){ text_crops = text_crops_; }
 private:
     std::vector<float> matToCHW(cv::Mat& img);
     cv::Mat Prcocess(cv::Mat& img, int64_t& height, int64_t& width);
-    cv::Mat preprocessClsImage(cv::Mat& img, int64_t& height, int64_t& width);
+    cv::Mat preprocessClsImage(const cv::Mat& img, const cv::Rect& rect);
 
 private:
     Ort::Env env_;
@@ -39,6 +34,6 @@ private:
 
     cv::Mat image_;
     std::vector<cv::Rect> text_crops_;
+    std::vector<std::pair<int,float>> rect_to_direction;
     std::map<std::string, cv::Rect> text_to_rect_map_;
-    std::map<cv::Rect,std::pair<int,float>> rect_to_direction_map_;
 };
